@@ -1,0 +1,20 @@
+# Start a build:  oc create -f tools/pipelinerun.yaml -n boutique
+# (or: OpenShift console > Pipelines > build-frontend > Start)
+apiVersion: tekton.dev/v1
+kind: PipelineRun
+metadata:
+  generateName: build-frontend-
+spec:
+  pipelineRef:
+    name: build-frontend
+  taskRunTemplate:
+    serviceAccountName: pipeline
+  workspaces:
+    - name: source
+      volumeClaimTemplate:
+        spec:
+          accessModes:
+            - ReadWriteOnce
+          resources:
+            requests:
+              storage: 1Gi

@@ -1,0 +1,30 @@
+# OpenShift GitOps (Argo CD): keep namespace "boutique" in sync with k8s/ in this repo.
+# Apply once:  oc apply -f argocd/application.yaml
+# Prerequisite: oc label namespace boutique argocd.argoproj.io/managed-by=openshift-gitops
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: boutique
+  namespace: openshift-gitops
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/Xu-tsu/openshift-ec-demo.git
+    targetRevision: main
+    path: k8s
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: boutique
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - RespectIgnoreDifferences=true
+  ignoreDifferences:
+    # The image is set by the ImageStream trigger after each Pipelines build.
+    - group: apps
+      kind: Deployment
+      name: frontend
+      jqPathExpressions:
+        - .spec.template.spec.containers[].image

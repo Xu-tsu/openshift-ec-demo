@@ -1,0 +1,57 @@
+# OpenShift Pipelines (Tekton): clone this repo, build src/frontend with Buildah,
+# push to the internal registry (ImageStream frontend:latest) -> the Deployment rolls out automatically.
+apiVersion: tekton.dev/v1
+kind: Pipeline
+metadata:
+  name: build-frontend
+spec:
+  params:
+    - name: git-url
+      type: string
+      default: https://github.com/Xu-tsu/openshift-ec-demo.git
+    - name: git-revision
+      type: string
+      default: main
+  workspaces:
+    - name: source
+  tasks:
+    - name: fetch-source
+      taskRef:
+        resolver: cluster
+        params:
+          - name: kind
+            value: task
+          - name: name
+            value: git-clone
+          - name: namespace
+            value: openshift-pipelines
+      params:
+        - name: URL
+          value: $(params.git-url)
+        - name: REVISION
+          value: $(params.git-revision)
+      workspaces:
+        - name: output
+          workspace: source
+    - name: build-and-push
+      runAfter:
+        - fetch-source
+      taskRef:
+        resolver: cluster
+        params:
+          - name: kind
+            value: task
+          - name: name
+            value: buildah
+          - name: namespace
+            value: openshift-pipelines
+      params:
+        - name: IMAGE
+          value: image-registry.openshift-image-registry.svc:5000/boutique/frontend:latest
+        - name: CONTEXT
+          value: src/frontend
+        - name: DOCKERFILE
+          value: ./src/frontend/Dockerfile
+      workspaces:
+        - name: source
+          workspace: source

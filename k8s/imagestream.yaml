@@ -1,0 +1,8 @@
+# frontend image is built by OpenShift Pipelines and pushed to the internal registry.
+# The frontend Deployment has an image trigger on frontend:latest, so every new build rolls out automatically.
+apiVersion: image.openshift.io/v1
+kind: ImageStream
+metadata:
+  name: frontend
+  labels:
+    app: frontend
