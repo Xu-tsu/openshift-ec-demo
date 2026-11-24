@@ -516,7 +516,7 @@ spec:
           # - name: ENABLE_ASSISTANT
           #   value: "true"
           - name: FRONTEND_MESSAGE
-            value: "GitOps test: deployed by OpenShift GitOps"
+            value: ""
           - name: BANNER_COLOR
             value: ""
           # As part of an optional Google Cloud demo, you can run an optional microservice called the "packaging service".
