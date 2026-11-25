@@ -867,6 +867,10 @@ metadata:
   name: frontend
   labels:
     app: frontend
+  annotations:
+    # Spread every request across all frontend Pods (no sticky cookie), so new Pods get traffic at once.
+    haproxy.router.openshift.io/disable_cookies: "true"
+    haproxy.router.openshift.io/balance: roundrobin
 spec:
   to:
     kind: Service

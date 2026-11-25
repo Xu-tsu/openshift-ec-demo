@@ -1,4 +1,5 @@
 # Load generator (Locust). Not managed by Argo CD so it can be tuned freely during the demo.
+# Traffic goes through the OpenShift Route (router/HAProxy), like real users, so router metrics show req/s per Pod.
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -57,7 +58,7 @@ spec:
         image: busybox:1.38.0@sha256:dc2d74b28e4cf8984fa52af1f39bc7c3d9c73760b41a74d629f5d11b1ab28616
         env:
         - name: FRONTEND_ADDR
-          value: "frontend:80"
+          value: "frontend-boutique.apps-crc.testing"
       containers:
       - name: main
         securityContext:
@@ -70,7 +71,7 @@ spec:
         image: us-central1-docker.pkg.dev/online-boutique-ci/microservices-demo/loadgenerator:v0.10.7
         env:
         - name: FRONTEND_ADDR
-          value: "frontend:80"
+          value: "frontend-boutique.apps-crc.testing"
         - name: USERS
           value: "10"
         - name: RATE

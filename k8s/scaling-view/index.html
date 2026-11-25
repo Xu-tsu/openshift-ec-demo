@@ -1,0 +1,402 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>オートスケール ライブビュー</title>
+<style>
+  :root {
+    --bg: #0b1220; --panel: #121b2e; --panel2: #18233a; --line: #26324a;
+    --text: #e8eefc; --muted: #8fa0c0; --ok: #3ddc97; --warn: #ffc857; --bad: #ff5d6c;
+    --accent: #ee0000; --blue: #4da3ff;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
+    font-family: "Segoe UI", "Hiragino Sans", "Yu Gothic UI", "Meiryo", sans-serif; }
+  body { display: flex; flex-direction: column; padding: 16px 20px; gap: 14px; min-height: 100vh; }
+  header { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+  h1 { font-size: 22px; margin: 0; font-weight: 700; letter-spacing: .02em; }
+  h1 small { color: var(--muted); font-weight: 400; font-size: 14px; margin-left: 8px; }
+  .live { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 700;
+    color: var(--bad); border: 1px solid #5a2430; padding: 3px 8px; border-radius: 99px; }
+  .live i { width: 8px; height: 8px; border-radius: 50%; background: var(--bad); animation: blink 1.2s infinite; }
+  .live.off { color: var(--muted); border-color: var(--line); } .live.off i { background: var(--muted); animation: none; }
+  @keyframes blink { 50% { opacity: .25; } }
+  .spacer { flex: 1; }
+  .level { font-size: 14px; padding: 6px 12px; border-radius: 8px; background: var(--panel2); border: 1px solid var(--line); }
+  .level b { color: var(--ok); } .level.spike b { color: var(--bad); }
+  button { font: inherit; font-weight: 700; font-size: 15px; border: 0; border-radius: 10px; padding: 10px 18px;
+    cursor: pointer; color: #fff; transition: transform .1s, filter .2s; }
+  button:active { transform: scale(.97); } button:disabled { filter: grayscale(1) brightness(.6); cursor: default; }
+  #btnSpike { background: linear-gradient(135deg, #ff3b3b, #c4001a); box-shadow: 0 4px 18px #ff3b3b44; }
+  #btnNormal { background: linear-gradient(135deg, #3b82f6, #1d4ed8); box-shadow: 0 4px 18px #3b82f644; }
+
+  .kpis { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; }
+  .kpi { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 14px 18px; }
+  .kpi .label { color: var(--muted); font-size: 14px; }
+  .kpi .value { font-size: 44px; font-weight: 800; line-height: 1.1; margin-top: 4px; font-variant-numeric: tabular-nums; }
+  .kpi .unit { font-size: 18px; color: var(--muted); font-weight: 600; margin-left: 4px; }
+  .kpi .sub { color: var(--muted); font-size: 13px; margin-top: 2px; }
+  .kpi.ok .value { color: var(--ok); } .kpi.bad .value { color: var(--bad); }
+  .kpi.pods .value { color: var(--blue); }
+  .bump { animation: bump .6s; } @keyframes bump { 30% { transform: scale(1.12); color: #fff; } }
+
+  main { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 14px; flex: 1; min-height: 430px; }
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 14px 16px; position: relative; }
+  .panel h2 { margin: 0 0 10px; font-size: 15px; color: var(--muted); font-weight: 600; }
+
+  #flow { display: grid; grid-template-columns: 150px 1fr 130px 1.2fr auto; align-items: center; height: calc(100% - 28px); min-height: 400px; position: relative; }
+  #flowCanvas { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+  .node { position: relative; z-index: 1; text-align: center; background: var(--panel2); border: 1px solid var(--line);
+    border-radius: 14px; padding: 14px 8px; }
+  .node .big { font-size: 26px; font-weight: 800; font-variant-numeric: tabular-nums; }
+  .node .cap { font-size: 12px; color: var(--muted); }
+  .node svg { width: 54px; height: 54px; display: block; margin: 0 auto 6px; }
+  #router { border-color: #3a2a2a; }
+  #router .tag { display: inline-block; font-size: 11px; color: #ffb3b3; border: 1px solid #5a2a2a; border-radius: 6px; padding: 1px 6px; margin-top: 4px; }
+
+  #pods { grid-column: 5; position: relative; z-index: 1; display: grid; grid-template-rows: repeat(5, 74px);
+    grid-auto-flow: column; grid-auto-columns: 232px; gap: 10px; }
+  .pod { border-radius: 12px; padding: 9px 12px; background: var(--panel2); border: 2px solid var(--line);
+    display: flex; flex-direction: column; justify-content: center; gap: 5px; transition: opacity .6s, filter .6s, border-color .4s; }
+  .pod .top { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+  .pod .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--muted); flex: none; }
+  .pod .name { font-weight: 700; font-family: Consolas, monospace; font-size: 13px; }
+  .pod .state { margin-left: auto; font-size: 12px; color: var(--muted); }
+  .pod .meter { height: 7px; background: #0c1424; border-radius: 4px; overflow: hidden; }
+  .pod .meter b { display: block; height: 100%; width: 0; background: var(--ok); border-radius: 4px; transition: width .8s, background .8s; }
+  .pod .nums { display: flex; justify-content: space-between; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .pod.ready { border-color: #2a6b52; } .pod.ready .dot { background: var(--ok); box-shadow: 0 0 10px var(--ok); }
+  .pod.starting { border-color: var(--warn); animation: pulse 1s infinite; } .pod.starting .dot { background: var(--warn); }
+  .pod.terminating { opacity: .35; filter: grayscale(1); border-style: dashed; }
+  .pod.enter { animation: pop .7s cubic-bezier(.2, 1.6, .4, 1); }
+  .pod.leave { animation: vanish .6s forwards; }
+  .slot { border: 2px dashed #24304a; border-radius: 12px; display: flex; align-items: center; justify-content: center;
+    color: #3b4a68; font-size: 13px; }
+  @keyframes pop { 0% { transform: scale(.2); opacity: 0; box-shadow: 0 0 0 0 #3ddc97aa; }
+    60% { opacity: 1; box-shadow: 0 0 30px 6px #3ddc9766; } 100% { transform: scale(1); } }
+  @keyframes pulse { 50% { box-shadow: 0 0 18px #ffc85766; } }
+  @keyframes vanish { to { transform: scale(.6); opacity: 0; } }
+
+  .side { display: flex; flex-direction: column; gap: 14px; min-height: 0; }
+  .gauge { height: 26px; background: #0c1424; border-radius: 8px; position: relative; overflow: hidden; margin: 6px 0 8px; }
+  .gauge b { position: absolute; left: 0; top: 0; bottom: 0; width: 0; background: linear-gradient(90deg, #3ddc97, #ffc857 60%, #ff5d6c);
+    transition: width .8s; }
+  .gauge .target { position: absolute; top: -2px; bottom: -2px; width: 3px; background: #fff; }
+  .gauge-row { display: flex; justify-content: space-between; font-size: 14px; }
+  .gauge-row b { font-size: 22px; font-variant-numeric: tabular-nums; }
+  .hpa-state { margin-top: 6px; font-size: 15px; font-weight: 700; padding: 8px 10px; border-radius: 8px; background: var(--panel2); text-align: center; }
+  .hpa-state.out { color: #fff; background: #7a1f2b; animation: pulse 1s infinite; }
+  .hpa-state.in { color: #fff; background: #1f4a7a; }
+  #log { list-style: none; margin: 0; padding: 0; overflow: auto; flex: 1; font-size: 13px; }
+  #log li { display: flex; gap: 8px; padding: 6px 0; border-bottom: 1px solid #1c2740; animation: slide .4s; }
+  #log time { color: var(--muted); font-variant-numeric: tabular-nums; flex: none; }
+  #log .c { width: 8px; height: 8px; border-radius: 50%; margin-top: 5px; flex: none; }
+  @keyframes slide { from { transform: translateX(20px); opacity: 0; } }
+  .logpanel { flex: 1; display: flex; flex-direction: column; min-height: 160px; }
+
+  .chartpanel { height: 170px; }
+  #chart { width: 100%; height: 120px; display: block; }
+  .legend { position: absolute; right: 16px; top: 12px; font-size: 12px; color: var(--muted); display: flex; gap: 14px; }
+  .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 5px; vertical-align: -1px; }
+  footer { color: #5d6d8e; font-size: 12px; text-align: right; }
+  .err { color: var(--warn); font-size: 12px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Online Boutique <span style="color:var(--accent)">オートスケール</span> ライブビュー<small>Red Hat OpenShift</small></h1>
+  <span class="live" id="live"><i></i>LIVE</span>
+  <span class="spacer"></span>
+  <span class="level" id="level">負荷: <b>-</b></span>
+  <button id="btnSpike">アクセス急増</button>
+  <button id="btnNormal">通常に戻す</button>
+</header>
+
+<section class="kpis">
+  <div class="kpi"><div class="label">アクセス数 / 秒</div><div class="value" id="kRps">-</div><div class="sub" id="kRpsSub">&nbsp;</div></div>
+  <div class="kpi ok"><div class="label">成功率</div><div class="value" id="kOk">-</div><div class="sub">直近 1 分</div></div>
+  <div class="kpi" id="kErrBox"><div class="label">エラー数</div><div class="value" id="kErr">-</div><div class="sub">直近 5 分</div></div>
+  <div class="kpi pods"><div class="label">稼働中の Pod 数</div><div class="value" id="kPods">-</div><div class="sub" id="kPodsSub">&nbsp;</div></div>
+</section>
+
+<main>
+  <section class="panel">
+    <h2>リクエストの流れ（ユーザー → OpenShift Router → frontend Pod）</h2>
+    <div id="flow">
+      <canvas id="flowCanvas"></canvas>
+      <div class="node" id="users">
+        <svg viewBox="0 0 64 64" fill="none" stroke="#8fb4ff" stroke-width="3"><circle cx="22" cy="22" r="8"/><path d="M8 50c0-9 6-15 14-15s14 6 14 15"/><circle cx="44" cy="20" r="7" opacity=".6"/><path d="M38 34c8 0 18 4 18 15" opacity=".6"/></svg>
+        <div class="big" id="nUsers">-</div><div class="cap">仮想ユーザー</div>
+      </div>
+      <div></div>
+      <div class="node" id="router">
+        <svg viewBox="0 0 64 64" fill="none" stroke="#ff8080" stroke-width="3"><rect x="10" y="22" width="44" height="20" rx="5"/><path d="M20 32h24M38 26l6 6-6 6"/></svg>
+        <div class="cap">Router</div><div class="tag">Route で負荷分散</div>
+      </div>
+      <div></div>
+      <div id="pods"></div>
+    </div>
+  </section>
+
+  <aside class="side">
+    <section class="panel">
+      <h2>HPA（自動スケーリング）</h2>
+      <div class="gauge-row"><span>平均 CPU 使用率</span><b id="hCpu">-</b></div>
+      <div class="gauge"><b id="hBar"></b><span class="target" id="hTarget"></span></div>
+      <div class="gauge-row" style="font-size:12px;color:var(--muted)"><span>0%</span><span id="hTargetLbl">目標 -</span><span>200%</span></div>
+      <div class="hpa-state" id="hState">-</div>
+    </section>
+    <section class="panel logpanel">
+      <h2>イベント</h2>
+      <ul id="log"></ul>
+    </section>
+  </aside>
+</main>
+
+<section class="panel chartpanel">
+  <h2>アクセス数と Pod 数の推移（直近 10 分）</h2>
+  <div class="legend"><span><i style="background:#4da3ff"></i>アクセス数/秒</span><span><i style="background:#3ddc97"></i>Pod 数</span></div>
+  <canvas id="chart"></canvas>
+</section>
+<footer>データ: OpenShift 統合モニタリング（Router メトリクス）・Metrics API・HorizontalPodAutoscaler <span class="err" id="errs"></span></footer>
+
+<script>
+(() => {
+  const POLL_MS = 2000, HISTORY_S = 600;
+  const $ = (id) => document.getElementById(id);
+  let state = null, history = [], lastOk = 0;
+  const cards = new Map();          // pod name -> {el, phase}
+  let prevDesired = null, prevLevel = null, prevSuccessLow = false;
+
+  // ---------- helpers ----------
+  const fmtTime = (d = new Date()) => d.toLocaleTimeString('ja-JP', { hour12: false });
+  const short = (n) => n.replace(/^frontend-[a-z0-9]+-/, 'frontend-…');
+  function log(text, color) {
+    const li = document.createElement('li');
+    li.innerHTML = `<time>${fmtTime()}</time><span class="c" style="background:${color}"></span><span></span>`;
+    li.lastChild.textContent = text;
+    const ul = $('log'); ul.prepend(li);
+    while (ul.children.length > 40) ul.lastChild.remove();
+  }
+  const tweens = new Map();
+  function setNum(el, to, digits = 0, suffix = '') {
+    const from = tweens.get(el) ?? to; tweens.set(el, to);
+    const t0 = performance.now(), dur = 700;
+    const step = (t) => {
+      const k = Math.min(1, (t - t0) / dur), v = from + (to - from) * (1 - Math.pow(1 - k, 3));
+      el.innerHTML = v.toLocaleString('ja-JP', { minimumFractionDigits: digits, maximumFractionDigits: digits }) + suffix;
+      if (k < 1) requestAnimationFrame(step);
+    };
+    requestAnimationFrame(step);
+  }
+  function bump(el) { el.classList.remove('bump'); void el.offsetWidth; el.classList.add('bump'); }
+
+  // ---------- polling ----------
+  async function poll() {
+    try {
+      const r = await fetch('api/state', { cache: 'no-store' });
+      if (!r.ok) throw new Error(r.status);
+      state = await r.json(); lastOk = Date.now(); render(state);
+    } catch (e) { /* keep last state */ }
+    $('live').classList.toggle('off', Date.now() - lastOk > 6000);
+    setTimeout(poll, POLL_MS);
+  }
+
+  function render(s) {
+    const tr = s.traffic || {}, hpa = s.hpa || {}, load = s.load || {};
+    // KPIs
+    setNum($('kRps'), tr.rps || 0, 1);
+    $('kRpsSub').textContent = load.users ? `仮想ユーザー ${load.users.toLocaleString()} 人` : '';
+    if (tr.success_rate == null) $('kOk').textContent = '-';
+    else setNum($('kOk'), tr.success_rate, tr.success_rate >= 99.995 ? 0 : 2, '<span class="unit">%</span>');
+    setNum($('kErr'), tr.errors_5m || 0, 0);
+    $('kErrBox').classList.toggle('bad', (tr.errors_5m || 0) > 0);
+    $('kErrBox').classList.toggle('ok', (tr.errors_5m || 0) === 0);
+    const readyPods = (s.pods || []).filter(p => p.phase === 'ready').length;
+    const podsEl = $('kPods');
+    if (podsEl.dataset.v !== String(readyPods)) { podsEl.dataset.v = readyPods; bump(podsEl); }
+    podsEl.innerHTML = `${readyPods}<span class="unit">/ 最大 ${hpa.max ?? '-'}</span>`;
+    $('kPodsSub').textContent = hpa.desired != null ? `HPA の目標 Pod 数: ${hpa.desired}` : '';
+
+    // load level
+    const lv = $('level');
+    lv.classList.toggle('spike', load.level === 'spike');
+    lv.innerHTML = `負荷: <b>${load.level === 'spike' ? 'アクセス急増中' : '通常'}</b>`;
+    setNum($('nUsers'), load.users || 0, 0);
+    if (prevLevel && load.level && load.level !== prevLevel)
+      log(load.level === 'spike' ? 'アクセス急増を開始しました' : '通常の負荷に戻しました', load.level === 'spike' ? '#ff5d6c' : '#4da3ff');
+    prevLevel = load.level || prevLevel;
+
+    // HPA
+    const cpu = hpa.cpu, target = hpa.target || 50;
+    $('hCpu').textContent = cpu == null ? '-' : cpu + '%';
+    $('hBar').style.width = Math.min(100, (cpu || 0) / 2) + '%';
+    $('hTarget').style.left = (target / 2) + '%';
+    $('hTargetLbl').textContent = `目標 ${target}%`;
+    const hs = $('hState');
+    hs.className = 'hpa-state';
+    if (hpa.desired > hpa.current) { hs.classList.add('out'); hs.textContent = `スケールアウト中（${hpa.current} → ${hpa.desired} Pod）`; }
+    else if (hpa.desired < hpa.current) { hs.classList.add('in'); hs.textContent = `スケールイン中（${hpa.current} → ${hpa.desired} Pod）`; }
+    else if (cpu != null && cpu > target) { hs.textContent = `CPU が目標超過 → まもなく Pod 追加`; }
+    else hs.textContent = `安定（${hpa.current ?? '-'} Pod）`;
+    if (prevDesired != null && hpa.desired != null && hpa.desired !== prevDesired)
+      log(`HPA: 目標 Pod 数 ${prevDesired} → ${hpa.desired}`, hpa.desired > prevDesired ? '#ffc857' : '#4da3ff');
+    if (hpa.desired != null) prevDesired = hpa.desired;
+
+    renderPods(s.pods || [], hpa.max || 5);
+
+    history.push({ t: s.time, rps: tr.rps || 0, pods: readyPods });
+    const cut = s.time - HISTORY_S; history = history.filter(h => h.t >= cut);
+    drawChart(hpa.max || 5);
+
+    $('errs').textContent = (s.errors && s.errors.length) ? ' ⚠ ' + s.errors.join(' / ') : '';
+  }
+
+  function renderPods(pods, max) {
+    const box = $('pods'), seen = new Set();
+    for (const p of pods) {
+      seen.add(p.name);
+      let c = cards.get(p.name);
+      if (!c) {
+        const el = document.createElement('div');
+        el.className = 'pod enter';
+        el.innerHTML = `<div class="top"><span class="dot"></span><span class="name"></span><span class="state"></span></div>
+          <div class="meter"><b></b></div><div class="nums"><span class="cpu"></span><span class="rps"></span></div>`;
+        el.querySelector('.name').textContent = short(p.name);
+        el.addEventListener('animationend', (e) => { if (e.animationName === 'pop') el.classList.remove('enter'); });
+        c = { el, phase: null }; cards.set(p.name, c);
+        if (state && history.length) log(`Pod 追加: ${short(p.name)}`, '#ffc857');
+      }
+      if (c.phase !== p.phase) {
+        if (c.phase === 'starting' && p.phase === 'ready') log(`稼働開始: ${short(p.name)}`, '#3ddc97');
+        if (c.phase && p.phase === 'terminating') log(`Pod 停止: ${short(p.name)}`, '#8fa0c0');
+        c.phase = p.phase;
+      }
+      const el = c.el;
+      el.classList.remove('ready', 'starting', 'terminating'); el.classList.add(p.phase);
+      el.querySelector('.state').textContent = { ready: '稼働中', starting: '起動中…', terminating: '停止中' }[p.phase];
+      const pct = p.cpu_request_m ? (100 * p.cpu_m / p.cpu_request_m) : 0;
+      const bar = el.querySelector('.meter b');
+      bar.style.width = Math.min(100, pct / 2) + '%';
+      bar.style.background = pct > 100 ? '#ff5d6c' : pct > 50 ? '#ffc857' : '#3ddc97';
+      el.querySelector('.cpu').textContent = `CPU ${Math.round(pct)}%`;
+      el.querySelector('.rps').textContent = `${p.rps.toFixed(1)} req/s`;
+      c.rps = p.rps;
+    }
+    for (const [name, c] of cards) {
+      if (!seen.has(name) && !c.leaving) {
+        c.leaving = true; c.el.classList.add('leave');
+        setTimeout(() => { c.el.remove(); cards.delete(name); }, 600);
+      }
+    }
+    // order: live cards (by creation) then empty slots
+    const order = pods.map(p => cards.get(p.name).el);
+    for (const [, c] of cards) if (c.leaving) order.push(c.el);
+    const active = pods.filter(p => p.phase !== 'terminating').length;
+    box.querySelectorAll('.slot').forEach(s => s.remove());
+    order.forEach(el => box.appendChild(el));
+    for (let i = active; i < max; i++) {
+      const s = document.createElement('div'); s.className = 'slot'; s.textContent = '空き枠'; box.appendChild(s);
+    }
+  }
+
+  // ---------- flow animation (particles) ----------
+  const fc = $('flowCanvas'), fctx = fc.getContext('2d');
+  let particles = [], lastT = performance.now(), acc = new Map();
+  function rel(el, side) {
+    const fr = $('flow').getBoundingClientRect(), r = el.getBoundingClientRect();
+    return { x: (side === 'r' ? r.right : r.left) - fr.left, y: r.top + r.height / 2 - fr.top };
+  }
+  function bez(a, b, t) {
+    const mx = (a.x + b.x) / 2, u = 1 - t;
+    const x = u*u*u*a.x + 3*u*u*t*mx + 3*u*t*t*mx + t*t*t*b.x;
+    const y = u*u*u*a.y + 3*u*u*t*a.y + 3*u*t*t*b.y + t*t*t*b.y;
+    return { x, y };
+  }
+  function lanes() {
+    const out = [];
+    const u = rel($('users'), 'r'), rl = rel($('router'), 'l'), rr = rel($('router'), 'r');
+    const total = state?.traffic?.rps || 0, errRatio = total ? (state.traffic.error_rps || 0) / total : 0;
+    out.push({ id: 'in', a: u, b: rl, rate: total, err: errRatio, w: 3 });
+    for (const [name, c] of cards) {
+      if (c.leaving) continue;
+      out.push({ id: name, a: rr, b: rel(c.el, 'l'), rate: c.rps || 0, err: errRatio, w: 2, dim: c.phase !== 'ready' });
+    }
+    return out;
+  }
+  function frame(t) {
+    const dt = Math.min(0.1, (t - lastT) / 1000); lastT = t;
+    const dpr = window.devicePixelRatio || 1, w = fc.clientWidth, h = fc.clientHeight;
+    if (fc.width !== w * dpr || fc.height !== h * dpr) { fc.width = w * dpr; fc.height = h * dpr; }
+    fctx.setTransform(dpr, 0, 0, dpr, 0, 0); fctx.clearRect(0, 0, w, h);
+    const ls = lanes(), byId = new Map(ls.map(l => [l.id, l]));
+    for (const l of ls) {
+      fctx.strokeStyle = l.dim ? '#2a3550' : (l.rate > 0.05 ? '#2c4a7a' : '#223049');
+      fctx.lineWidth = l.w; fctx.beginPath();
+      for (let i = 0; i <= 24; i++) { const p = bez(l.a, l.b, i / 24); i ? fctx.lineTo(p.x, p.y) : fctx.moveTo(p.x, p.y); }
+      fctx.stroke();
+      // spawn: visual rate grows with real req/s (sqrt keeps it readable at high load)
+      const vis = l.rate > 0.05 ? Math.min(70, 2 + Math.sqrt(l.rate) * 5) : 0;
+      const a = (acc.get(l.id) || 0) + vis * dt; let n = Math.floor(a); acc.set(l.id, a - n);
+      while (n-- > 0) particles.push({ lane: l.id, t: 0, sp: 0.75 + Math.random() * 0.35, red: Math.random() < l.err, j: (Math.random() - .5) * 6 });
+    }
+    particles = particles.filter(p => byId.has(p.lane) && p.t < 1);
+    for (const p of particles) {
+      const l = byId.get(p.lane); p.t += dt * p.sp;
+      const q = bez(l.a, l.b, Math.min(1, p.t));
+      fctx.fillStyle = p.red ? '#ff5d6c' : (p.lane === 'in' ? '#8fb4ff' : '#3ddc97');
+      fctx.shadowColor = fctx.fillStyle; fctx.shadowBlur = 8;
+      fctx.beginPath(); fctx.arc(q.x, q.y + p.j * Math.sin(p.t * Math.PI), 3, 0, Math.PI * 2); fctx.fill();
+    }
+    fctx.shadowBlur = 0;
+    requestAnimationFrame(frame);
+  }
+
+  // ---------- history chart ----------
+  function drawChart(maxPods) {
+    const cv = $('chart'), ctx = cv.getContext('2d'), dpr = window.devicePixelRatio || 1;
+    const w = cv.clientWidth, h = cv.clientHeight;
+    cv.width = w * dpr; cv.height = h * dpr; ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    const padL = 44, padR = 34, padB = 18, padT = 6, now = Date.now() / 1000;
+    const X = (t) => padL + (w - padL - padR) * (1 - (now - t) / HISTORY_S);
+    const maxR = Math.max(10, ...history.map(h => h.rps)) * 1.15;
+    const Y = (v) => h - padB - (h - padB - padT) * (v / maxR);
+    const P = (v) => h - padB - (h - padB - padT) * (v / Math.max(1, maxPods));
+    ctx.strokeStyle = '#1f2a42'; ctx.fillStyle = '#5d6d8e'; ctx.font = '11px sans-serif'; ctx.lineWidth = 1;
+    for (let i = 0; i <= 4; i++) {
+      const y = padT + (h - padB - padT) * i / 4; ctx.beginPath(); ctx.moveTo(padL, y); ctx.lineTo(w - padR, y); ctx.stroke();
+      ctx.textAlign = 'right'; ctx.fillText(Math.round(maxR * (1 - i / 4)), padL - 6, y + 4);
+      ctx.textAlign = 'left'; ctx.fillText(Math.round(maxPods * (1 - i / 4)), w - padR + 6, y + 4);
+    }
+    for (let m = 0; m <= 10; m += 2) { ctx.textAlign = 'center'; ctx.fillText(m ? `-${m}分` : '現在', X(now - m * 60), h - 4); }
+    if (history.length < 2) return;
+    const g = ctx.createLinearGradient(0, padT, 0, h - padB); g.addColorStop(0, '#4da3ff88'); g.addColorStop(1, '#4da3ff05');
+    ctx.beginPath(); ctx.moveTo(X(history[0].t), Y(0));
+    history.forEach(p => ctx.lineTo(X(p.t), Y(p.rps))); ctx.lineTo(X(history[history.length - 1].t), Y(0));
+    ctx.fillStyle = g; ctx.fill();
+    ctx.beginPath(); history.forEach((p, i) => i ? ctx.lineTo(X(p.t), Y(p.rps)) : ctx.moveTo(X(p.t), Y(p.rps)));
+    ctx.strokeStyle = '#4da3ff'; ctx.lineWidth = 2; ctx.stroke();
+    ctx.beginPath(); history.forEach((p, i) => { const x = X(p.t), y = P(p.pods); if (!i) ctx.moveTo(x, y); else { ctx.lineTo(x, P(history[i - 1].pods)); ctx.lineTo(x, y); } });
+    ctx.strokeStyle = '#3ddc97'; ctx.lineWidth = 3; ctx.stroke();
+  }
+
+  // ---------- controls ----------
+  async function setLoad(level) {
+    $('btnSpike').disabled = $('btnNormal').disabled = true;
+    try {
+      const r = await fetch('api/load', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'scaling-view' }, body: JSON.stringify({ level }) });
+      if (!r.ok) throw new Error((await r.json()).error || r.status);
+    } catch (e) { log('負荷の切り替えに失敗: ' + e.message, '#ff5d6c'); }
+    setTimeout(() => { $('btnSpike').disabled = $('btnNormal').disabled = false; }, 3000);
+  }
+  $('btnSpike').onclick = () => setLoad('spike');
+  $('btnNormal').onclick = () => setLoad('normal');
+  window.addEventListener('resize', () => drawChart(state?.hpa?.max || 5));
+
+  log('ライブビューを開始しました', '#4da3ff');
+  poll(); requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>

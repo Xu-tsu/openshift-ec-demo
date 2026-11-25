@@ -6,3 +6,9 @@ resources:
   - imagestream.yaml
   - hpa.yaml
   - pipeline.yaml
+  - scaling-view.yaml
+configMapGenerator:
+  - name: scaling-view-app
+    files:
+      - scaling-view/server.py
+      - scaling-view/index.html
