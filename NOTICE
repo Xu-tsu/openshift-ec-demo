@@ -2,5 +2,6 @@ This repository contains material from GoogleCloudPlatform/microservices-demo
 (https://github.com/GoogleCloudPlatform/microservices-demo), tag v0.10.7,
 Copyright Google LLC, licensed under the Apache License, Version 2.0.
 
-Modified files: k8s/boutique.yaml, tools/loadgenerator.yaml (derived from release/kubernetes-manifests.yaml).
+Modified files: k8s/boutique.yaml, tools/loadgenerator.yaml (derived from release/kubernetes-manifests.yaml);
+the locustfile embedded in tools/loadgenerator.yaml (from src/loadgenerator/locustfile.py) uses a fixed test VISA card.
 src/frontend/ is copied from upstream; only src/frontend/Dockerfile is modified (removed the ARG BUILDPLATFORM default for Buildah).

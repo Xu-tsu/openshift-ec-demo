@@ -88,7 +88,8 @@
   .hpa-state { margin-top: 6px; font-size: 15px; font-weight: 700; padding: 8px 10px; border-radius: 8px; background: var(--panel2); text-align: center; }
   .hpa-state.out { color: #fff; background: #7a1f2b; animation: pulse 1s infinite; }
   .hpa-state.in { color: #fff; background: #1f4a7a; }
-  #log { list-style: none; margin: 0; padding: 0; overflow: auto; flex: 1; font-size: 13px; }
+  #log { list-style: none; margin: 0; padding: 0; overflow-y: auto; overflow-x: hidden; flex: 1; font-size: 13px; }
+  #log li span:last-child { overflow-wrap: anywhere; }
   #log li { display: flex; gap: 8px; padding: 6px 0; border-bottom: 1px solid #1c2740; animation: slide .4s; }
   #log time { color: var(--muted); font-variant-numeric: tabular-nums; flex: none; }
   #log .c { width: 8px; height: 8px; border-radius: 50%; margin-top: 5px; flex: none; }
@@ -238,6 +239,7 @@
     hs.className = 'hpa-state';
     if (hpa.desired > hpa.current) { hs.classList.add('out'); hs.textContent = `スケールアウト中（${hpa.current} → ${hpa.desired} Pod）`; }
     else if (hpa.desired < hpa.current) { hs.classList.add('in'); hs.textContent = `スケールイン中（${hpa.current} → ${hpa.desired} Pod）`; }
+    else if (cpu != null && cpu > target && hpa.current >= hpa.max) { hs.textContent = `最大 ${hpa.max} Pod で稼働中`; }
     else if (cpu != null && cpu > target) { hs.textContent = `CPU が目標超過 → まもなく Pod 追加`; }
     else hs.textContent = `安定（${hpa.current ?? '-'} Pod）`;
     if (prevDesired != null && hpa.desired != null && hpa.desired !== prevDesired)
@@ -286,6 +288,7 @@
     }
     for (const [name, c] of cards) {
       if (!seen.has(name) && !c.leaving) {
+        if (c.phase !== 'terminating') log(`Pod 停止: ${short(name)}`, '#8fa0c0');
         c.leaving = true; c.el.classList.add('leave');
         setTimeout(() => { c.el.remove(); cards.delete(name); }, 600);
       }

@@ -485,6 +485,11 @@ spec:
             privileged: false
             readOnlyRootFilesystem: true
           image: image-registry.openshift-image-registry.svc:5000/boutique/frontend:latest
+          lifecycle:
+            # Zero-downtime scale-in: keep serving for 5s after SIGTERM while the router drops this Pod.
+            preStop:
+              sleep:
+                seconds: 5
           ports:
           - containerPort: 8080
           readinessProbe:
@@ -607,7 +612,10 @@ spec:
           grpc:
             port: 8080
         livenessProbe:
+          # Demo: tolerate brief CPU saturation under load instead of restarting.
           periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 6
           grpc:
             port: 8080
         env:
@@ -619,10 +627,10 @@ spec:
           value: "1"
         resources:
           requests:
-            cpu: 20m
+            cpu: 100m
             memory: 40Mi
           limits:
-            cpu: 200m
+            cpu: 1000m
             memory: 450Mi
 ---
 apiVersion: v1
