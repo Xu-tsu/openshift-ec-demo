@@ -8,6 +8,8 @@ metadata:
   name: adservice
   labels:
     app: adservice
+    app.kubernetes.io/part-of: online-boutique
+    app.openshift.io/runtime: java
 spec:
   selector:
     matchLabels:
@@ -80,6 +82,8 @@ metadata:
   name: shippingservice
   labels:
     app: shippingservice
+    app.kubernetes.io/part-of: online-boutique
+    app.openshift.io/runtime: golang
 spec:
   selector:
     matchLabels:
@@ -150,6 +154,10 @@ metadata:
   name: checkoutservice
   labels:
     app: checkoutservice
+    app.kubernetes.io/part-of: online-boutique
+    app.openshift.io/runtime: golang
+  annotations:
+    app.openshift.io/connects-to: '[{"apiVersion":"apps/v1","kind":"Deployment","name":"productcatalogservice"},{"apiVersion":"apps/v1","kind":"Deployment","name":"shippingservice"},{"apiVersion":"apps/v1","kind":"Deployment","name":"paymentservice"},{"apiVersion":"apps/v1","kind":"Deployment","name":"emailservice"},{"apiVersion":"apps/v1","kind":"Deployment","name":"currencyservice"},{"apiVersion":"apps/v1","kind":"Deployment","name":"cartservice"}]'
 spec:
   selector:
     matchLabels:
@@ -229,6 +237,8 @@ metadata:
   name: currencyservice
   labels:
     app: currencyservice
+    app.kubernetes.io/part-of: online-boutique
+    app.openshift.io/runtime: nodejs
 spec:
   selector:
     matchLabels:
@@ -300,6 +310,8 @@ metadata:
   name: emailservice
   labels:
     app: emailservice
+    app.kubernetes.io/part-of: online-boutique
+    app.openshift.io/runtime: python
 spec:
   selector:
     matchLabels:
@@ -372,6 +384,8 @@ metadata:
   name: productcatalogservice
   labels:
     app: productcatalogservice
+    app.kubernetes.io/part-of: online-boutique
+    app.openshift.io/runtime: golang
 spec:
   selector:
     matchLabels:
@@ -442,7 +456,10 @@ metadata:
   name: frontend
   labels:
     app: frontend
+    app.kubernetes.io/part-of: online-boutique
+    app.openshift.io/runtime: golang
   annotations:
+    app.openshift.io/connects-to: '[{"apiVersion":"apps/v1","kind":"Deployment","name":"productcatalogservice"},{"apiVersion":"apps/v1","kind":"Deployment","name":"currencyservice"},{"apiVersion":"apps/v1","kind":"Deployment","name":"cartservice"},{"apiVersion":"apps/v1","kind":"Deployment","name":"recommendationservice"},{"apiVersion":"apps/v1","kind":"Deployment","name":"shippingservice"},{"apiVersion":"apps/v1","kind":"Deployment","name":"checkoutservice"},{"apiVersion":"apps/v1","kind":"Deployment","name":"adservice"}]'
     image.openshift.io/triggers: '[{"from":{"kind":"ImageStreamTag","name":"frontend:latest"},"fieldPath":"spec.template.spec.containers[?(@.name==\"server\")].image"}]'
 spec:
   selector:
@@ -556,6 +573,10 @@ metadata:
   name: recommendationservice
   labels:
     app: recommendationservice
+    app.kubernetes.io/part-of: online-boutique
+    app.openshift.io/runtime: python
+  annotations:
+    app.openshift.io/connects-to: '[{"apiVersion":"apps/v1","kind":"Deployment","name":"productcatalogservice"}]'
 spec:
   selector:
     matchLabels:
@@ -630,6 +651,10 @@ metadata:
   name: cartservice
   labels:
     app: cartservice
+    app.kubernetes.io/part-of: online-boutique
+    app.openshift.io/runtime: dotnet
+  annotations:
+    app.openshift.io/connects-to: '[{"apiVersion":"apps/v1","kind":"Deployment","name":"redis-cart"}]'
 spec:
   selector:
     matchLabels:
@@ -701,6 +726,8 @@ metadata:
   name: redis-cart
   labels:
     app: redis-cart
+    app.kubernetes.io/part-of: online-boutique
+    app.openshift.io/runtime: redis
 spec:
   selector:
     matchLabels:
@@ -767,6 +794,8 @@ metadata:
   name: paymentservice
   labels:
     app: paymentservice
+    app.kubernetes.io/part-of: online-boutique
+    app.openshift.io/runtime: nodejs
 spec:
   selector:
     matchLabels:
