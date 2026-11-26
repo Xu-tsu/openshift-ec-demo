@@ -105,6 +105,8 @@
   @keyframes vanish { to { transform: scale(.6); opacity: 0; } }
 
   .side { display: flex; flex-direction: column; gap: 14px; min-height: 0; }
+  .side > .panel { flex: none; }
+  .side > .logpanel { flex: 1 1 auto; min-height: 110px; }
   .gauge { height: 26px; background: #0c1424; border-radius: 8px; position: relative; overflow: hidden; margin: 6px 0 8px; }
   .gauge b { position: absolute; left: 0; top: 0; bottom: 0; width: 0; background: linear-gradient(90deg, #3ddc97, #ffc857 60%, #ff5d6c);
     transition: width .8s; }
@@ -120,10 +122,10 @@
   #log time { color: var(--muted); font-variant-numeric: tabular-nums; flex: none; }
   #log .c { width: 8px; height: 8px; border-radius: 50%; margin-top: 5px; flex: none; }
   @keyframes slide { from { transform: translateX(20px); opacity: 0; } }
-  .logpanel { flex: 1; display: flex; flex-direction: column; min-height: 160px; }
+  .logpanel { display: flex; flex-direction: column; overflow: hidden; }
 
-  .chartpanel { height: 170px; }
-  #chart { width: 100%; height: 120px; display: block; }
+  .chartpanel { height: 150px; flex: none; }
+  #chart { width: 100%; height: 100px; display: block; }
   .legend { position: absolute; right: 16px; top: 12px; font-size: 12px; color: var(--muted); display: flex; gap: 14px; }
   .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 5px; vertical-align: -1px; }
   footer { color: #5d6d8e; font-size: 12px; text-align: right; }
@@ -339,10 +341,10 @@
     // order: live cards (by creation) then empty slots
     const order = pods.map(p => cards.get(p.name).el);
     for (const [, c] of cards) if (c.leaving) order.push(c.el);
-    const active = pods.filter(p => p.phase !== 'terminating').length;
     box.querySelectorAll('.slot').forEach(s => s.remove());
     order.forEach(el => box.appendChild(el));
-    for (let i = active; i < max; i++) {
+    // fill up to "max" with empty slots; cards that are starting/stopping also take a slot so nothing wraps
+    for (let i = order.length; i < max; i++) {
       const s = document.createElement('div'); s.className = 'slot'; s.textContent = '空き枠'; box.appendChild(s);
     }
   }
