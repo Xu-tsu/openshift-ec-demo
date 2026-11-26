@@ -10,7 +10,8 @@ spec:
     apiVersion: apps/v1
     kind: Deployment
     name: frontend
-  minReplicas: 1
+  # Always keep 2 Pods so a single Pod/server failure never stops the shop.
+  minReplicas: 2
   maxReplicas: 5
   behavior:
     # Demo setting: scale back in after 1 minute of low load (Kubernetes default is 5 minutes).

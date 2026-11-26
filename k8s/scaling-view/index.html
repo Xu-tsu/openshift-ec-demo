@@ -30,6 +30,32 @@
   button:active { transform: scale(.97); } button:disabled { filter: grayscale(1) brightness(.6); cursor: default; }
   #btnSpike { background: linear-gradient(135deg, #ff3b3b, #c4001a); box-shadow: 0 4px 18px #ff3b3b44; }
   #btnNormal { background: linear-gradient(135deg, #3b82f6, #1d4ed8); box-shadow: 0 4px 18px #3b82f644; }
+  #btnChaos { background: linear-gradient(135deg, #ff9f1c, #d35400); box-shadow: 0 4px 18px #ff9f1c44; }
+  #btnUpdate { background: linear-gradient(135deg, #a855f7, #6d28d9); box-shadow: 0 4px 18px #a855f744; }
+  .btns { display: flex; gap: 10px; flex-wrap: wrap; }
+  .btns button small { display: block; font-size: 11px; font-weight: 500; opacity: .85; }
+
+  .pod .ver { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; padding: 0 6px; border-radius: 6px;
+    background: #0c1424; font-family: Consolas, monospace; }
+  .pod .ver i { width: 8px; height: 8px; border-radius: 2px; display: inline-block; }
+  .pod.killed { animation: killed .8s forwards; }
+  @keyframes killed { 0% { border-color: #ff5d6c; box-shadow: 0 0 30px #ff5d6c; } 30% { transform: translateX(-6px) rotate(-2deg); }
+    60% { transform: translateX(6px) rotate(2deg); } 100% { transform: scale(.5); opacity: 0; } }
+
+  .scenario { min-height: 0; }
+  .scenario .title { font-size: 16px; font-weight: 800; margin-bottom: 8px; }
+  .scenario .title small { color: var(--muted); font-weight: 500; margin-left: 6px; font-size: 13px; }
+  .steps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+  .steps li { display: flex; align-items: center; gap: 8px; font-size: 14px; color: var(--muted); }
+  .steps li .m { width: 20px; height: 20px; border-radius: 50%; border: 2px solid #33415e; flex: none; display: flex;
+    align-items: center; justify-content: center; font-size: 12px; font-weight: 800; }
+  .steps li.run { color: var(--text); } .steps li.run .m { border-color: var(--warn); border-top-color: transparent; animation: spin .8s linear infinite; }
+  .steps li.done { color: var(--text); } .steps li.done .m { border-color: var(--ok); background: var(--ok); color: #0b1220; }
+  .steps li.fail .m { border-color: var(--bad); background: var(--bad); color: #fff; }
+  .steps li .t { margin-left: auto; font-variant-numeric: tabular-nums; font-size: 12px; color: var(--muted); }
+  .scenario .result { margin-top: 8px; padding: 8px 10px; border-radius: 8px; background: #11331f; color: var(--ok); font-weight: 700; font-size: 14px; display: none; }
+  .scenario .result.show { display: block; animation: slide .4s; }
+  @keyframes spin { to { transform: rotate(360deg); } }
 
   .kpis { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; }
   .kpi { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 14px 18px; }
@@ -110,8 +136,12 @@
   <span class="live" id="live"><i></i>LIVE</span>
   <span class="spacer"></span>
   <span class="level" id="level">負荷: <b>-</b></span>
-  <button id="btnSpike">アクセス急増</button>
-  <button id="btnNormal">通常に戻す</button>
+  <div class="btns">
+    <button id="btnSpike">① アクセス急増<small>Pod を自動で増設</small></button>
+    <button id="btnNormal">通常に戻す<small>Pod を自動で削減</small></button>
+    <button id="btnChaos">② サーバー障害<small>Pod を強制停止</small></button>
+    <button id="btnUpdate">③ システム更新<small>Pipelines → 無停止更新</small></button>
+  </div>
 </header>
 
 <section class="kpis">
@@ -147,6 +177,12 @@
       <div class="gauge"><b id="hBar"></b><span class="target" id="hTarget"></span></div>
       <div class="gauge-row" style="font-size:12px;color:var(--muted)"><span>0%</span><span id="hTargetLbl">目標 -</span><span>200%</span></div>
       <div class="hpa-state" id="hState">-</div>
+    </section>
+    <section class="panel scenario" id="scenario">
+      <h2>シナリオ</h2>
+      <div class="title" id="scTitle">待機中<small>上のボタンで開始</small></div>
+      <ul class="steps" id="scSteps"></ul>
+      <div class="result" id="scResult"></div>
     </section>
     <section class="panel logpanel">
       <h2>イベント</h2>
@@ -247,6 +283,7 @@
     if (hpa.desired != null) prevDesired = hpa.desired;
 
     renderPods(s.pods || [], hpa.max || 5);
+    updateScenario(s);
 
     history.push({ t: s.time, rps: tr.rps || 0, pods: readyPods });
     const cut = s.time - HISTORY_S; history = history.filter(h => h.t >= cut);
@@ -257,6 +294,7 @@
 
   function renderPods(pods, max) {
     const box = $('pods'), seen = new Set();
+    pods = pods.filter(p => !killedPods.has(p.name));   // a force-killed Pod may linger in the API for a moment
     for (const p of pods) {
       seen.add(p.name);
       let c = cards.get(p.name);
@@ -264,7 +302,7 @@
         const el = document.createElement('div');
         el.className = 'pod enter';
         el.innerHTML = `<div class="top"><span class="dot"></span><span class="name"></span><span class="state"></span></div>
-          <div class="meter"><b></b></div><div class="nums"><span class="cpu"></span><span class="rps"></span></div>`;
+          <div class="meter"><b></b></div><div class="nums"><span class="cpu"></span><span class="ver"><i></i><span></span></span><span class="rps"></span></div>`;
         el.querySelector('.name').textContent = short(p.name);
         el.addEventListener('animationend', (e) => { if (e.animationName === 'pop') el.classList.remove('enter'); });
         c = { el, phase: null }; cards.set(p.name, c);
@@ -284,13 +322,18 @@
       bar.style.background = pct > 100 ? '#ff5d6c' : pct > 50 ? '#ffc857' : '#3ddc97';
       el.querySelector('.cpu').textContent = `CPU ${Math.round(pct)}%`;
       el.querySelector('.rps').textContent = `${p.rps.toFixed(1)} req/s`;
+      el.querySelector('.ver i').style.background = verColor(p.version);
+      el.querySelector('.ver span').textContent = 'ver ' + (p.version || '-');
+      el.querySelector('.ver').title = 'コンテナイメージ ' + (p.version || '');
       c.rps = p.rps;
     }
     for (const [name, c] of cards) {
       if (!seen.has(name) && !c.leaving) {
-        if (c.phase !== 'terminating') log(`Pod 停止: ${short(name)}`, '#8fa0c0');
-        c.leaving = true; c.el.classList.add('leave');
-        setTimeout(() => { c.el.remove(); cards.delete(name); }, 600);
+        if (c.phase !== 'terminating' && !killedPods.has(name)) log(`Pod 停止: ${short(name)}`, '#8fa0c0');
+        c.leaving = true;
+        const killed = killedPods.has(name);
+        c.el.classList.add(killed ? 'killed' : 'leave');
+        setTimeout(() => { c.el.remove(); cards.delete(name); }, killed ? 800 : 600);
       }
     }
     // order: live cards (by creation) then empty slots
@@ -384,17 +427,153 @@
     ctx.strokeStyle = '#3ddc97'; ctx.lineWidth = 3; ctx.stroke();
   }
 
+  // ---------- version colors ----------
+  const VER_COLORS = ['#4da3ff', '#c084fc', '#f472b6', '#facc15', '#34d399', '#fb923c'];
+  const verMap = new Map();
+  function verColor(v) { if (!verMap.has(v)) verMap.set(v, VER_COLORS[verMap.size % VER_COLORS.length]); return verMap.get(v); }
+  const killedPods = new Set();
+
+  // ---------- scenarios (step-by-step progress for the video) ----------
+  let sc = null;
+  const nowS = () => Date.now() / 1000;
+  const readyOf = (s) => (s.pods || []).filter(p => p.phase === 'ready');
+  function startScenario(type, title, sub, labels, data) {
+    sc = { type, title, sub, t0: nowS(), data: data || {}, steps: labels.map(l => ({ label: l, st: 'wait', t: null })), done: false };
+    sc.steps[0].st = 'run';
+    $('scResult').className = 'result'; $('scResult').textContent = '';
+    renderScenario();
+  }
+  function step(i, st, label) {
+    const s = sc.steps[i]; if (!s || s.st === 'done' || s.st === 'fail') return;
+    if (label) s.label = label;
+    s.st = st; if (st === 'done' || st === 'fail') s.t = nowS() - sc.t0;
+    if (st === 'done' && sc.steps[i + 1] && sc.steps[i + 1].st === 'wait') sc.steps[i + 1].st = 'run';
+  }
+  function finish(text, ok = true) {
+    if (sc.done) return; sc.done = true;
+    const r = $('scResult'); r.textContent = text; r.className = 'result show';
+    r.style.background = ok ? '#11331f' : '#3a1118'; r.style.color = ok ? 'var(--ok)' : 'var(--bad)';
+    log(text, ok ? '#3ddc97' : '#ff5d6c');
+  }
+  function renderScenario() {
+    if (!sc) return;
+    $('scTitle').innerHTML = ''; $('scTitle').append(sc.title);
+    const sm = document.createElement('small'); sm.textContent = sc.sub; $('scTitle').append(sm);
+    const ul = $('scSteps'); ul.innerHTML = '';
+    sc.steps.forEach((s, i) => {
+      const li = document.createElement('li'); li.className = s.st;
+      li.innerHTML = `<span class="m">${s.st === 'done' ? '✓' : s.st === 'fail' ? '!' : i + 1}</span><span></span><span class="t"></span>`;
+      li.children[1].textContent = s.label;
+      li.children[2].textContent = s.t != null ? `+${Math.round(s.t)} 秒` : '';
+      ul.appendChild(li);
+    });
+  }
+  const errDelta = (s) => Math.max(0, ((s.traffic || {}).errors_5m || 0) - (sc.data.err0 || 0));
+
+  function updateScenario(s) {
+    if (!sc || sc.done) { renderScenario(); return; }
+    const hpa = s.hpa || {}, ready = readyOf(s), d = sc.data, el = Math.round(nowS() - sc.t0);
+    if (sc.type === 'spike') {
+      step(0, 'done');
+      if (hpa.cpu != null && hpa.cpu > (hpa.target || 50)) step(1, 'done', `CPU が目標 ${hpa.target || 50}% を超過（${hpa.cpu}%）`);
+      if (sc.steps[1].st === 'done' && hpa.desired > d.pods0) step(2, 'done', `HPA が Pod 追加を決定（${d.pods0} → ${hpa.desired}）`);
+      if (sc.steps[2].st === 'done' && ready.length > d.pods0) step(3, 'done', `新しい Pod が稼働開始（${ready.length} 台）`);
+      if (sc.steps[3].st === 'done' && ready.length === hpa.desired && hpa.desired === hpa.current &&
+          (hpa.current >= hpa.max || (hpa.cpu != null && hpa.cpu <= (hpa.target || 50) * 1.1))) {
+        step(4, 'done', `負荷が分散され安定（各 Pod ${(s.traffic.rps / Math.max(1, ready.length)).toFixed(0)} req/s）`);
+        finish(`Pod ${d.pods0} → ${ready.length} 台に自動増設・エラー ${errDelta(s)} 件（${el} 秒）`, errDelta(s) === 0);
+      }
+    } else if (sc.type === 'normal') {
+      step(0, 'done');
+      if (hpa.cpu != null && hpa.cpu < (hpa.target || 50)) step(1, 'done', `CPU が低下（${hpa.cpu}%）→ 安定待ち 60 秒`);
+      if (sc.steps[1].st === 'done' && hpa.desired < d.pods0) step(2, 'done', `HPA が Pod 削減を決定（${d.pods0} → ${hpa.desired}）`);
+      if (sc.steps[2].st === 'done' && hpa.current === hpa.desired && ready.length === hpa.desired && (s.pods || []).length === ready.length) {
+        step(3, 'done', `${ready.length} 台に縮小（リソースを解放）`);
+        finish(`Pod ${d.pods0} → ${ready.length} 台に自動削減・エラー ${errDelta(s)} 件（${el} 秒）`, errDelta(s) === 0);
+      }
+      if (d.pods0 <= (hpa.min || 1) && hpa.cpu != null) { step(1, 'done'); step(2, 'done', '最小台数のため削減なし'); step(3, 'done', `${ready.length} 台で稼働`); finish(`最小 ${hpa.min} 台で稼働中`); }
+    } else if (sc.type === 'chaos') {
+      step(0, 'done');
+      const fresh = (s.pods || []).filter(p => !d.before.has(p.name));
+      if (fresh.length) step(1, 'done', `代わりの Pod を自動作成（${short(fresh[0].name)}）`);
+      if (fresh.some(p => p.phase === 'ready') && ready.length >= d.ready0) step(2, 'done', `新しい Pod が稼働開始（${ready.length} 台に復旧）`);
+      if (sc.steps[2].st === 'done') {
+        step(3, 'done', `サービス継続・エラー ${errDelta(s)} 件`);
+        finish(`障害から ${el} 秒で自動復旧・エラー ${errDelta(s)} 件`, errDelta(s) === 0);
+      }
+    } else if (sc.type === 'update') {
+      const pr = s.pipeline;
+      if (!pr || pr.name !== d.run) return renderScenario();
+      const t = pr.tasks || {}, f = t['fetch-source'], b = t['build-and-push'];
+      if (f) step(0, f.status === 'True' ? 'done' : f.status === 'False' ? 'fail' : 'run');
+      if (b) step(1, b.status === 'True' ? 'done' : b.status === 'False' ? 'fail' : 'run');
+      if (pr.status === 'False') { finish(`ビルド失敗: ${pr.reason}`, false); return renderScenario(); }
+      if (pr.status === 'True') {
+        step(0, 'done'); step(1, 'done');
+        const live = (s.pods || []).filter(p => p.phase !== 'terminating');
+        const newVer = live.map(p => p.version).find(v => v && !d.oldVers.has(v));
+        if (newVer) {
+          d.newVer = newVer;
+          const nNew = ready.filter(p => p.version === newVer).length;
+          step(2, 'run', `ローリングアップデート中（新 ${nNew} / ${live.length} 台）`);
+          if ((s.pods || []).every(p => p.version === newVer && p.phase === 'ready') && (s.rollout || {}).complete) {
+            step(2, 'done', `全 ${ready.length} 台を新バージョンに入れ替え`);
+            step(3, 'done', `サービス継続・エラー ${errDelta(s)} 件`);
+            finish(`無停止で更新完了（ver ${[...d.oldVers][0] || '-'} → ${newVer}）・エラー ${errDelta(s)} 件（${el} 秒）`, errDelta(s) === 0);
+          }
+        }
+      }
+    }
+    renderScenario();
+  }
+
   // ---------- controls ----------
+  const BTN_IDS = ['btnSpike', 'btnNormal', 'btnChaos', 'btnUpdate'];
+  const lock = (ms) => { BTN_IDS.forEach(id => $(id).disabled = true); setTimeout(() => BTN_IDS.forEach(id => $(id).disabled = false), ms); };
+  async function post(path, body) {
+    const r = await fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'scaling-view' }, body: JSON.stringify(body || {}) });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(j.error || r.status);
+    return j;
+  }
+  const base = () => ({ err0: (state?.traffic || {}).errors_5m || 0, pods0: readyOf(state || {}).length });
   async function setLoad(level) {
-    $('btnSpike').disabled = $('btnNormal').disabled = true;
+    lock(3000);
     try {
-      const r = await fetch('api/load', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'scaling-view' }, body: JSON.stringify({ level }) });
-      if (!r.ok) throw new Error((await r.json()).error || r.status);
+      await post('api/load', { level });
+      if (level === 'spike') startScenario('spike', '① アクセス急増', '→ Pod を自動で増設',
+        ['アクセス急増を開始（仮想ユーザー 900 人）', 'CPU が目標を超過', 'HPA が Pod 追加を決定', '新しい Pod が稼働開始', '負荷が分散され安定'], base());
+      else startScenario('normal', 'アクセス減少', '→ Pod を自動で削減',
+        ['通常の負荷に戻す（仮想ユーザー 10 人）', 'CPU が低下', 'HPA が Pod 削減を決定', '最小台数に縮小'], base());
     } catch (e) { log('負荷の切り替えに失敗: ' + e.message, '#ff5d6c'); }
-    setTimeout(() => { $('btnSpike').disabled = $('btnNormal').disabled = false; }, 3000);
+  }
+  async function chaos() {
+    lock(5000);
+    const before = new Set((state?.pods || []).map(p => p.name));
+    try {
+      const j = await post('api/chaos');
+      killedPods.add(j.pod);
+      const c = cards.get(j.pod); if (c) { c.el.classList.add('killed'); c.leaving = true; setTimeout(() => { c.el.remove(); cards.delete(j.pod); }, 800); }
+      log(`障害発生: ${short(j.pod)} を強制停止`, '#ff9f1c');
+      startScenario('chaos', '② サーバー障害', '→ 自動復旧',
+        [`Pod を強制停止（${short(j.pod)}）`, 'Kubernetes が代わりの Pod を自動作成', '新しい Pod が稼働開始', 'サービスへの影響を確認'],
+        { ...base(), before, ready0: readyOf(state || {}).length });
+    } catch (e) { log('障害の発生に失敗: ' + e.message, '#ff5d6c'); }
+  }
+  async function update() {
+    lock(8000);
+    try {
+      const j = await post('api/update');
+      log(`システム更新を開始: ${j.pipelinerun}`, '#a855f7');
+      startScenario('update', '③ システム更新', '→ OpenShift Pipelines で無停止更新',
+        ['ソースコードを取得（git-clone）', 'コンテナイメージをビルド（Buildah）', '新バージョンをローリングアップデート', 'サービスへの影響を確認'],
+        { ...base(), run: j.pipelinerun, oldVers: new Set((state?.pods || []).map(p => p.version)) });
+    } catch (e) { log('更新の開始に失敗: ' + e.message, '#ff5d6c'); }
   }
   $('btnSpike').onclick = () => setLoad('spike');
   $('btnNormal').onclick = () => setLoad('normal');
+  $('btnChaos').onclick = chaos;
+  $('btnUpdate').onclick = update;
   window.addEventListener('resize', () => drawChart(state?.hpa?.max || 5));
 
   log('ライブビューを開始しました', '#4da3ff');

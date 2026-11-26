@@ -13,7 +13,7 @@ metadata:
 rules:
   - apiGroups: [""]
     resources: [pods]
-    verbs: [get, list, watch]
+    verbs: [get, list, watch, delete]   # delete: "② サーバー障害" force-kills one frontend Pod
   - apiGroups: [metrics.k8s.io]
     resources: [pods]
     verbs: [get, list]
@@ -23,7 +23,17 @@ rules:
   - apiGroups: [apps]
     resources: [deployments]
     resourceNames: [loadgenerator]
-    verbs: [get, patch]
+    verbs: [get, patch]                 # "① アクセス急増 / 通常に戻す"
+  - apiGroups: [apps]
+    resources: [deployments]
+    resourceNames: [frontend]
+    verbs: [get]                        # rollout progress
+  - apiGroups: [tekton.dev]
+    resources: [pipelineruns]
+    verbs: [get, list, create, delete]  # "③ システム更新" starts build-frontend, prunes old runs
+  - apiGroups: [tekton.dev]
+    resources: [taskruns]
+    verbs: [get, list]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding

@@ -5,7 +5,11 @@ Python 3.9 standard library only. Runs in-cluster with its ServiceAccount and re
   - per-Pod CPU              (Metrics API, same source the HPA uses)
   - HPA status               (autoscaling/v2)
   - per-Pod requests/second  (OpenShift router / HAProxy metrics via Thanos Querier)
-It can also switch the load generator between "normal" and "spike".
+  - the latest build-frontend PipelineRun (OpenShift Pipelines)
+Demo scenarios it can trigger:
+  - load:   switch the load generator between "normal" and "spike"
+  - chaos:  force-kill one frontend Pod (simulated server failure)
+  - update: start the build-frontend Pipeline (new image -> rolling update via ImageStream trigger)
 """
 import json
 import os
@@ -19,6 +23,8 @@ NS = os.environ.get("TARGET_NAMESPACE", "boutique")
 APP = os.environ.get("TARGET_DEPLOYMENT", "frontend")
 ROUTE = os.environ.get("TARGET_ROUTE", "frontend")
 LOADGEN = os.environ.get("LOADGEN_DEPLOYMENT", "loadgenerator")
+PIPELINE = os.environ.get("PIPELINE", "build-frontend")
+KEEP_RUNS = 2  # older PipelineRuns (and their PVCs) are pruned when a new one starts
 THANOS = os.environ.get("THANOS_URL", "https://thanos-querier.openshift-monitoring.svc:9091")
 PORT = int(os.environ.get("PORT", "8080"))
 SA = "/var/run/secrets/kubernetes.io/serviceaccount"
@@ -119,10 +125,13 @@ def collect():
         else:
             phase = "starting"
         req_m = 0.0
-        for c in p.get("spec", {}).get("containers", []):
+        containers = p.get("spec", {}).get("containers", [])
+        for c in containers:
             cpu = c.get("resources", {}).get("requests", {}).get("cpu")
             if cpu:
                 req_m += cpu_millicores(cpu)
+        image = containers[0].get("image", "") if containers else ""
+        version = image.split("@sha256:", 1)[1][:7] if "@sha256:" in image else image.rsplit(":", 1)[-1][:7]
         name = md["name"]
         plist.append({
             "name": name,
@@ -131,6 +140,7 @@ def collect():
             "cpu_m": round(usage.get(name, 0.0), 1),
             "cpu_request_m": req_m,
             "rps": round(rps_by_pod.get(name, 0.0), 2),
+            "version": version,
         })
     plist.sort(key=lambda x: x["created"])
     out["pods"] = plist
@@ -165,7 +175,91 @@ def collect():
     except Exception as e:  # noqa: BLE001
         out["errors"].append("loadgenerator: %s" % e)
 
+    try:
+        d = kube("/apis/apps/v1/namespaces/%s/deployments/%s" % (NS, APP))
+        st = d.get("status", {})
+        out["rollout"] = {
+            "replicas": st.get("replicas", 0),
+            "updated": st.get("updatedReplicas", 0),
+            "available": st.get("availableReplicas", 0),
+            "complete": st.get("observedGeneration", 0) >= d["metadata"].get("generation", 0)
+            and st.get("updatedReplicas", 0) == st.get("replicas", 0) == st.get("availableReplicas", 0),
+        }
+    except Exception as e:  # noqa: BLE001
+        out["errors"].append("rollout: %s" % e)
+
+    try:
+        out["pipeline"] = latest_pipeline_run()
+    except Exception as e:  # noqa: BLE001
+        out["errors"].append("pipeline: %s" % e)
+
     return out
+
+
+def _pipeline_runs():
+    sel = urllib.parse.quote("tekton.dev/pipeline=" + PIPELINE)
+    runs = kube("/apis/tekton.dev/v1/namespaces/%s/pipelineruns?labelSelector=%s" % (NS, sel))["items"]
+    return sorted(runs, key=lambda r: r["metadata"].get("creationTimestamp", ""))
+
+
+def latest_pipeline_run():
+    runs = _pipeline_runs()
+    if not runs:
+        return None
+    run = runs[-1]
+    name = run["metadata"]["name"]
+    conds = run.get("status", {}).get("conditions") or [{}]
+    sel = urllib.parse.quote("tekton.dev/pipelineRun=" + name)
+    tasks = {}
+    for tr in kube("/apis/tekton.dev/v1/namespaces/%s/taskruns?labelSelector=%s" % (NS, sel))["items"]:
+        task = tr["metadata"].get("labels", {}).get("tekton.dev/pipelineTask", tr["metadata"]["name"])
+        tc = (tr.get("status", {}).get("conditions") or [{}])[0]
+        tasks[task] = {"status": tc.get("status", "Unknown"), "reason": tc.get("reason", "Pending")}
+    return {
+        "name": name,
+        "status": conds[0].get("status", "Unknown"),
+        "reason": conds[0].get("reason", "Pending"),
+        "start": run.get("status", {}).get("startTime") or run["metadata"].get("creationTimestamp"),
+        "end": run.get("status", {}).get("completionTime"),
+        "tasks": tasks,
+    }
+
+
+def chaos():
+    """Force-kill one ready frontend Pod, like a server crash (no graceful shutdown)."""
+    selector = urllib.parse.quote("app=" + APP)
+    pods = kube("/api/v1/namespaces/%s/pods?labelSelector=%s" % (NS, selector))["items"]
+    ready = [p for p in pods if not p["metadata"].get("deletionTimestamp")
+             and any(c["type"] == "Ready" and c["status"] == "True" for c in p.get("status", {}).get("conditions", []) or [])]
+    if len(ready) < 2:
+        raise ValueError("稼働中の Pod が %d 台のため停止できません（冗長化には 2 台以上が必要）" % len(ready))
+    victim = sorted(ready, key=lambda p: p["metadata"].get("creationTimestamp", ""))[0]["metadata"]["name"]
+    kube("/api/v1/namespaces/%s/pods/%s" % (NS, victim), method="DELETE",
+         body=json.dumps({"gracePeriodSeconds": 0}).encode(), ctype="application/json")
+    return victim
+
+
+def start_update():
+    """Start the build-frontend Pipeline; the ImageStream trigger then rolls the new image out."""
+    runs = _pipeline_runs()
+    if runs and (runs[-1].get("status", {}).get("conditions") or [{}])[0].get("status") == "Unknown":
+        raise ValueError("ビルドが実行中です: " + runs[-1]["metadata"]["name"])
+    for old in runs[:-KEEP_RUNS] if len(runs) >= KEEP_RUNS else []:
+        kube("/apis/tekton.dev/v1/namespaces/%s/pipelineruns/%s" % (NS, old["metadata"]["name"]), method="DELETE")
+    body = {
+        "apiVersion": "tekton.dev/v1",
+        "kind": "PipelineRun",
+        "metadata": {"generateName": PIPELINE + "-", "labels": {"app.kubernetes.io/created-by": "scaling-view"}},
+        "spec": {
+            "pipelineRef": {"name": PIPELINE},
+            "taskRunTemplate": {"serviceAccountName": "pipeline"},
+            "workspaces": [{"name": "source", "volumeClaimTemplate": {"spec": {
+                "accessModes": ["ReadWriteOnce"], "resources": {"requests": {"storage": "1Gi"}}}}}],
+        },
+    }
+    run = kube("/apis/tekton.dev/v1/namespaces/%s/pipelineruns" % NS, method="POST",
+               body=json.dumps(body).encode(), ctype="application/json")
+    return run["metadata"]["name"]
 
 
 def set_load(level):
@@ -201,20 +295,28 @@ class Handler(BaseHTTPRequestHandler):
             self._send(404, '{"error":"not found"}')
 
     def do_POST(self):  # noqa: N802
-        if self.path.split("?", 1)[0] != "/api/load":
+        path = self.path.split("?", 1)[0]
+        if path not in ("/api/load", "/api/chaos", "/api/update"):
             return self._send(404, '{"error":"not found"}')
         # Simple CSRF guard: browsers cannot add this header cross-site without CORS.
         if self.headers.get("X-Requested-With") != "scaling-view":
             return self._send(403, '{"error":"forbidden"}')
         try:
             length = int(self.headers.get("Content-Length") or 0)
-            level = json.loads(self.rfile.read(length) or b"{}").get("level")
-            if level not in LEVELS:
-                return self._send(400, '{"error":"level must be normal or spike"}')
-            set_load(level)
-            self._send(200, json.dumps({"ok": True, "level": level}))
+            body = json.loads(self.rfile.read(length) or b"{}")
+            if path == "/api/load":
+                level = body.get("level")
+                if level not in LEVELS:
+                    return self._send(400, '{"error":"level must be normal or spike"}')
+                set_load(level)
+                return self._send(200, json.dumps({"ok": True, "level": level}))
+            if path == "/api/chaos":
+                return self._send(200, json.dumps({"ok": True, "pod": chaos()}, ensure_ascii=False))
+            return self._send(200, json.dumps({"ok": True, "pipelinerun": start_update()}, ensure_ascii=False))
+        except ValueError as e:
+            self._send(409, json.dumps({"error": str(e)}, ensure_ascii=False))
         except Exception as e:  # noqa: BLE001
-            self._send(500, json.dumps({"error": str(e)}))
+            self._send(500, json.dumps({"error": str(e)}, ensure_ascii=False))
 
     def log_message(self, fmt, *args):
         if not self.path.startswith(("/api/state", "/healthz")):
